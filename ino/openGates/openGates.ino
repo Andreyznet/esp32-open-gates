@@ -503,8 +503,6 @@ void loop() {
   updateGates();// Проверять состояние 
   if (isOpenGate1 || isOpenGate3) {
     int sensorValue = analogRead(config["GPIO_Led"].toInt()); // когда нажимаем какую либо кнопку, начинаем считывать значения с пина
-    //Serial.print("sensorValue: ");
-    //Serial.println(sensorValue);
   }
 }
 
