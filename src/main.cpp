@@ -9,6 +9,7 @@
 #include <EEManager.h>
 #include <LittleFS.h>
 #include <PairsFile.h>
+#include <FastBot2.h>
 
 void formatLittleFS();
 void defaultConfig();
@@ -17,9 +18,11 @@ void openGate1();
 void openGate3();
 void startAP();
 void updateGates();
+void updateh(fb::Update& u);
 
 PairsFile config(&LittleFS, "/config.dat", 3000);
 GyverPortal ui;
+FastBot2 bot;
 
 // Компоненты страницы
 //GP_LABEL_BLOCK lbl("lbl");
@@ -48,7 +51,8 @@ GP_SPINNER timeDownBtn("timeDownBtn", 1000,  50, 9999, 50, 0, GP_GREEN, "72px");
 
 #define AP_SSID "Gates"
 #define AP_PASS "12345678"
-#define BOT_TOKEN "1234567890"
+#define BOT_TOKEN "5313332238:AAH_y7CKD9rovDF71Wmjke0K1uB58nAx064"
+#define CHAT_ID "-4680217636"
 #define CONNECT_TIMEOUT 900000 // 15 минут таймаут подключения
 String tmpSSID = ""; // Промежуточная переменная для хранения выбранного SSID
 String tmpPass = ""; // 
@@ -84,6 +88,39 @@ const int numAdc = sizeof(adcNames) / sizeof(adcNames[0]);
 #define STATIC_IP IPAddress(192, 168, 0, 111)
 #define GATEWAY IPAddress(192, 168, 0, 1)
 #define SUBNET IPAddress(255, 255, 255, 0)
+
+void updateh(fb::Update& u) {
+    Serial.println("NEW MESSAGE");
+    Serial.println(u.message().from().username());
+    Serial.println(u.message().text());
+
+    //if(u.message().text() == "1" || u.message().text() == "1п" || u.message().text() == "Ворота 1п") {
+    //  bot.sendMessage(fb::Message("Открываю 1п", u.message().chat().id()));
+    //}
+
+    // #1
+    // отправить обратно в чат (эхо)
+    bot.sendMessage(fb::Message(u.message().text(), u.message().chat().id()));
+
+    // #2
+    // декодирование Unicode символов (кириллицы) делается вручную!
+    // String text = u.message().text().decodeUnicode();
+    // text += " - ответ";
+    // bot.sendMessage(fb::Message(text, u.message().chat().id()));
+
+    // #3
+    // или так
+
+    //if(msg.text == "1" || msg.text == "1п" || msg.text == "Ворота 1п") {
+    //  msg.text = "Открываю 1п";
+    //  bot.sendMessage(msg);
+    //}
+    //if(msg.text == "3" || msg.text == "3п" || msg.text == "Ворота 3п") {
+    //  msg.text = "Открываю 3п";
+    //  bot.sendMessage(msg);
+    //}
+
+}
 
 void printWiFiMode() {
     WiFiMode_t mode = WiFi.getMode();
@@ -244,6 +281,7 @@ void action() {
         if (ui.click(btnPrintConfig)) {
             Serial.println("print Config");
             printConfig();
+            bot.sendMessage(fb::Message("Hello!", -4680217636));
         }
         //ui.clickInt("GPIO_Gates_1", config.GPIO_Gates_1);
 
@@ -397,6 +435,7 @@ void startAP() {
 void setup() {
   Serial.begin(115200);
   //LittleFS.begin();
+  delay(1000);
   if (LittleFS.begin()) {
       Serial.println("LittleFS загружен");  
     } else {
@@ -417,11 +456,7 @@ void setup() {
       defaultConfig();
       if (config["GPIO_Gates_1"].length() > 0) pinMode(config["GPIO_Gates_1"], OUTPUT);
       if (config["GPIO_Gates_3"].length() > 0) pinMode(config["GPIO_Gates_3"], OUTPUT);
-  }
-
-  //Serial.println(status); // Отладочный вывод статуса
-  Serial.println(config["GPIO_Gates_1"]); 
-  Serial.println(config["GPIO_Gates_3"]); 
+  } 
   // Проверяем статус
   if (config["ssid"].length() == 0) {
         Serial.println("SSID пустой, запускаемся в режиме AP");
@@ -477,12 +512,27 @@ void setup() {
             break;
         }
     }
+
+  bot.attachUpdate(updateh);   // подключить обработчик обновлений
+  Serial.print("Бот токен: "); Serial.println(config["botToken"]);
+  bot.setToken(F("5313332238:AAH_y7CKD9rovDF71Wmjke0K1uB58nAx064")); // установить токен
+  //bot.setToken(F(BOT_TOKEN));  // установить токен
+  //bot.setPollMode(fb::Poll::Long, 20000);
+  Serial.print("CHAT_ID: ");
+  Serial.println(config["CHAT_ID"]);
+  // поприветствуем админа
+  Serial.print("sendMessage Hello! - ");
+  Serial.println(config["CHAT_ID"]);
+  bot.setPollMode(fb::Poll::Long, 20000);
+  bot.sendMessage(fb::Message("Hello!", CHAT_ID));
 }
 
 void loop() {
     static uint32_t tmr;
-
     ui.tick();
+    bot.setToken(config["botToken"]);  // установить токен
+    bot.tick();
+    if (bot.tick()) Serial.println("bot.tick()");
     if (config.tick()) {
       Serial.println("Updated config");
       isSave = true;
@@ -534,6 +584,7 @@ void defaultConfig() {
     config["ssid"] = "";      // Пустой SSID
     config["password"] = ""; // Пустой пароль
     config["botToken"] = BOT_TOKEN; //
+    config["CHAT_ID"] = CHAT_ID; //
 
     config.update();
 }
@@ -558,6 +609,8 @@ void printConfig() {
     Serial.println(config["openThreshold"]);
     Serial.print("botToken: ");
     Serial.println(config["botToken"]);
+    Serial.print("CHAT_ID: ");
+    Serial.println(config["CHAT_ID"]);
 }
 
 
