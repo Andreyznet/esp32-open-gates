@@ -85,6 +85,8 @@ const int numAdc = sizeof(adcNames) / sizeof(adcNames[0]);
 #define GATEWAY IPAddress(192, 168, 0, 1)
 #define SUBNET IPAddress(255, 255, 255, 0)
 
+
+
 void printWiFiMode() {
     WiFiMode_t mode = WiFi.getMode();
     Serial.print("Текущий режим Wi-Fi: ");

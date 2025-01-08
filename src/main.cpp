@@ -4,25 +4,27 @@
 #else
 #include <ESP8266WiFi.h>
 #endif
+#include <FastBot2.h>
 #include <GyverPortal.h>
 #include <EEPROM.h>
 #include <EEManager.h>
 #include <LittleFS.h>
 #include <PairsFile.h>
-#include <FastBot2.h>
 
-void formatLittleFS();
-void defaultConfig();
-void printConfig();
+void formatLittleFS(); // Форматирует файловую систему
+void defaultConfig(); // сбрасываем все настройки по умолчанию, кроме ssid и password
+void printConfig(); // выводим на печать в Serial Monitor все настройки
 void openGate1();
 void openGate3();
 void startAP();
 void updateGates();
-void updateh(fb::Update& u);
+void startBot();
+void helpBot();
+
 
 PairsFile config(&LittleFS, "/config.dat", 3000);
 GyverPortal ui;
-FastBot2 bot;
+
 
 // Компоненты страницы
 //GP_LABEL_BLOCK lbl("lbl");
@@ -51,11 +53,15 @@ GP_SPINNER timeDownBtn("timeDownBtn", 1000,  50, 9999, 50, 0, GP_GREEN, "72px");
 
 #define AP_SSID "Gates"
 #define AP_PASS "12345678"
+#define WIFI_SSID "RT-GPON-13FA"
+#define WIFI_PASS "89128387309"
 #define BOT_TOKEN "5313332238:AAH_y7CKD9rovDF71Wmjke0K1uB58nAx064"
 #define CHAT_ID "-4680217636"
+#define CHAT_ID_ADMIN "721449684"
 #define CONNECT_TIMEOUT 900000 // 15 минут таймаут подключения
 String tmpSSID = ""; // Промежуточная переменная для хранения выбранного SSID
 String tmpPass = ""; // 
+int64_t chatId;
 float tmpFloat;
 float tmpInt;
 bool ledState = true;  // Состояние светодиода
@@ -65,6 +71,10 @@ bool isOpenGate1 = false;
 bool isOpenGate3 = false;
 bool isSave = false;
 unsigned long startTime;
+
+
+FastBot2 bot;
+
 
 #ifdef ESP8266
 // Массив с названиями пинов и их значениями
@@ -88,38 +98,48 @@ const int numAdc = sizeof(adcNames) / sizeof(adcNames[0]);
 #define STATIC_IP IPAddress(192, 168, 0, 111)
 #define GATEWAY IPAddress(192, 168, 0, 1)
 #define SUBNET IPAddress(255, 255, 255, 0)
+#define DNS_SERVER1 IPAddress(8, 8, 8, 8)    // Google DNS
+#define DNS_SERVER2 IPAddress(8, 8, 4, 4)    // Google DNS
 
+void startBot() {
+  fb::Message msg("Start Bot", CHAT_ID);
+  fb::Menu menu;
+  // задаётся в CSV: горизонтальный разделитель ; вертикальный - \n
+  menu.text = "Ворота 1п ; Ворота 3п \n Подъезд 1 ; Подъезд 2 ;Подъезд 3 ;";
+  menu.resize = 1;
+  menu.placeholder = "Выберите ворота";
+  msg.setMenu(menu);  // подключить меню
+  // отправить
+  bot.sendMessage(msg);
+}
+
+void helpBot() {
+  fb::Message msg("Help Bot!!!\nИнструкция.", CHAT_ID);
+  bot.sendMessage(msg);
+}
+
+// обработчик сообщений
 void updateh(fb::Update& u) {
-    Serial.println("NEW MESSAGE");
+    chatId = u.message().from().id();
+    Serial.print("ChatID: ");
+    Serial.println(chatId);
     Serial.println(u.message().from().username());
     Serial.println(u.message().text());
 
-    //if(u.message().text() == "1" || u.message().text() == "1п" || u.message().text() == "Ворота 1п") {
-    //  bot.sendMessage(fb::Message("Открываю 1п", u.message().chat().id()));
-    //}
+    String msgText = u.message().text().decodeUnicode();
 
-    // #1
-    // отправить обратно в чат (эхо)
-    bot.sendMessage(fb::Message(u.message().text(), u.message().chat().id()));
-
-    // #2
-    // декодирование Unicode символов (кириллицы) делается вручную!
-    // String text = u.message().text().decodeUnicode();
-    // text += " - ответ";
-    // bot.sendMessage(fb::Message(text, u.message().chat().id()));
-
-    // #3
-    // или так
-
-    //if(msg.text == "1" || msg.text == "1п" || msg.text == "Ворота 1п") {
-    //  msg.text = "Открываю 1п";
-    //  bot.sendMessage(msg);
-    //}
-    //if(msg.text == "3" || msg.text == "3п" || msg.text == "Ворота 3п") {
-    //  msg.text = "Открываю 3п";
-    //  bot.sendMessage(msg);
-    //}
-
+    if (msgText == "1" || msgText == "1п" || msgText == "Ворота 1п" || msgText == "Ворота 1") {
+      //bot.sendMessage(fb::Message("Открываю ворота 1п.", chat_id));
+      openGate1();
+    }
+    if (msgText == "3" || msgText == "3п" || msgText == "Ворота 3п" || msgText == "Ворота 3") {
+      //bot.sendMessage(fb::Message("Открываю ворота 1п.", chat_id));
+      openGate3();
+    }
+    if (msgText == "/start") startBot();
+    if (msgText == "/help" || msgText == "/?") helpBot();
+    //bot.sendMessage(fb::Message(u.message().text(), chatId));
+    
 }
 
 void printWiFiMode() {
@@ -281,7 +301,6 @@ void action() {
         if (ui.click(btnPrintConfig)) {
             Serial.println("print Config");
             printConfig();
-            bot.sendMessage(fb::Message("Hello!", -4680217636));
         }
         //ui.clickInt("GPIO_Gates_1", config.GPIO_Gates_1);
 
@@ -391,6 +410,7 @@ void action() {
     }
 }
 void connectWiFi() {
+    scanWiFi();
     WiFi.config(STATIC_IP, GATEWAY, SUBNET);
     Serial.print("Статический IP: ");
     Serial.println(WiFi.localIP());
@@ -404,20 +424,26 @@ void connectWiFi() {
     while (WiFi.status() != WL_CONNECTED && (millis() - start) < CONNECT_TIMEOUT) {
         delay(1000);
         Serial.print(".");
+        if (millis() > 15000) {
+            Serial.println();
+            Serial.print("ESP.restart()");
+            ESP.restart();
+        }
     }
     Serial.println();
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Подключено!");
+        //Serial.println("Подключено!");
         Serial.println("Подключено к " + String(WiFi.SSID())+ " (" + String(WiFi.RSSI()) + ") " + " (IP: " + WiFi.localIP().toString() + ")");
-        ui.attachBuild(buildPortal);
-        ui.attach(action);
-        ui.start();
+        //ui.attachBuild(buildPortal);
+        //ui.attach(action);
+        //ui.start();
     } else {
         Serial.println("Не удалось подключиться. Запуск AP...");
         WiFi.disconnect(true, true);
         startAP();
     }
+    printWiFiMode();
 }
 
 void startAP() {
@@ -425,9 +451,9 @@ void startAP() {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(AP_SSID, AP_PASS);
     scanWiFi();
-    ui.attachBuild(buildPortal);
-    ui.attach(action);
-    ui.start();
+    //ui.attachBuild(buildPortal);
+    //ui.attach(action);
+    //ui.start();
     Serial.println("AP запущена. IP: " + WiFi.softAPIP().toString());
     printWiFiMode();
 }
@@ -448,9 +474,11 @@ void setup() {
       Serial.println("Создаем файл с значениями по умолчанию и загружаем его...");
       defaultConfig();
   }
-     // прочитать из файла
-  //EEPROM.begin(EEPROM_SIZE);
-  //byte status = memory.begin(0, 'y');
+
+  bot.attachUpdate(updateh);   // подключить обработчик обновлений
+  bot.setToken(F(BOT_TOKEN));  // установить токен
+  bot.setPollMode(fb::Poll::Long, 20000);
+
   // Проверем переменную GPIO_Gates_1 если она пустая выставляем значения по умолчанию
   if (config["GPIO_Gates_1"].length() == 0 || config["GPIO_Gates_3"].length() == 0 ) {
       defaultConfig();
@@ -459,14 +487,23 @@ void setup() {
   } 
   // Проверяем статус
   if (config["ssid"].length() == 0) {
-        Serial.println("SSID пустой, запускаемся в режиме AP");
-        startAP();
-      } else {
-        printConfig();
-        Serial.println("SSID найден, подключаемся к WiFi" + config["ssid"]);
-        connectWiFi();
-      }
-  
+      Serial.println("SSID пустой, запускаемся в режиме AP");
+      startAP();
+  } else {
+      scanWiFi();
+      Serial.println("SSID найден, подключаемся к WiFi" + config["ssid"]);
+      WiFi.config(STATIC_IP, GATEWAY, SUBNET, DNS_SERVER1, DNS_SERVER2);
+      WiFi.begin(config["ssid"], config["password"]);
+      while (WiFi.status() != WL_CONNECTED) {
+          delay(500);
+          Serial.print(".");
+          if (millis() > 15000) {
+              Serial.println();
+              Serial.print("ESP.restart()");
+              ESP.restart();
+          } 
+      } 
+    }
 
   // Настройка выпадающего списка
   GPIO_Gates_1.list = "";
@@ -512,27 +549,25 @@ void setup() {
             break;
         }
     }
+  Serial.println(); 
+  if (WiFi.status() == WL_CONNECTED) {
+      bot.sendMessage(fb::Message("Start Bot (IP: http://" + WiFi.localIP().toString() + ")", CHAT_ID_ADMIN));
+      startBot();
 
-  bot.attachUpdate(updateh);   // подключить обработчик обновлений
-  Serial.print("Бот токен: "); Serial.println(config["botToken"]);
-  bot.setToken(F("5313332238:AAH_y7CKD9rovDF71Wmjke0K1uB58nAx064")); // установить токен
-  //bot.setToken(F(BOT_TOKEN));  // установить токен
-  //bot.setPollMode(fb::Poll::Long, 20000);
-  Serial.print("CHAT_ID: ");
-  Serial.println(config["CHAT_ID"]);
-  // поприветствуем админа
-  Serial.print("sendMessage Hello! - ");
-  Serial.println(config["CHAT_ID"]);
-  bot.setPollMode(fb::Poll::Long, 20000);
-  bot.sendMessage(fb::Message("Hello!", CHAT_ID));
+      Serial.println("Подключено к " + String(WiFi.SSID())+ " (" + String(WiFi.RSSI()) + ") " + " (IP: " + WiFi.localIP().toString() + ")");
+  }
+  
+  ui.attachBuild(buildPortal);
+  ui.attach(action);
+  ui.start();
+
 }
 
 void loop() {
+    bot.tick();
     static uint32_t tmr;
     ui.tick();
-    bot.setToken(config["botToken"]);  // установить токен
-    bot.tick();
-    if (bot.tick()) Serial.println("bot.tick()");
+
     if (config.tick()) {
       Serial.println("Updated config");
       isSave = true;
@@ -569,7 +604,7 @@ void formatLittleFS() {
     }
 }
 
-void defaultConfig() {
+void defaultConfig() { // сбрасываем все настройки по умолчанию, кроме ssid и password
   #ifdef ESP8266
     config["GPIO_Gates_1"] = "16";
     config["GPIO_Gates_3"] = "5";
@@ -581,8 +616,8 @@ void defaultConfig() {
     config["GPIO_Led"] = "0";
     config["timeDownBtn"] = "1000";
     config["openThreshold"] = "3";
-    config["ssid"] = "";      // Пустой SSID
-    config["password"] = ""; // Пустой пароль
+    //config["ssid"] = "";      // Пустой SSID
+    //config["password"] = ""; // Пустой пароль
     config["botToken"] = BOT_TOKEN; //
     config["CHAT_ID"] = CHAT_ID; //
 
@@ -618,6 +653,7 @@ void openGate1() {
   startTime = millis();
   isOpenGate1 = true;
   digitalWrite(config["GPIO_Gates_1"], HIGH);
+  bot.sendMessage(fb::Message("Открываю ворота 1п.", CHAT_ID));
   Serial.print("Нажимаем пин ");
   Serial.println(config["GPIO_Gates_1"]);
 }
@@ -626,6 +662,7 @@ void openGate3() {
   startTime = millis();
   isOpenGate3 = true;
   digitalWrite(config["GPIO_Gates_3"], HIGH);
+  bot.sendMessage(fb::Message("Открываю ворота 3п.", CHAT_ID));
   Serial.print("Нажимаем пин ");
   Serial.println(config["GPIO_Gates_3"]);
 }
@@ -648,7 +685,7 @@ void updateGates() {
       Serial.println(millis() - startTime);
       Serial.print("Отпускаем пин ");
       Serial.println(config["GPIO_Gates_3"]);
-      isOpenGate1 = false;
+      isOpenGate3 = false;
     }
   }
 }
